@@ -26,7 +26,8 @@ def login():
 
         username = request.form['username']
         password = request.form['password']
-
+        return redirect('/dashboard')
+        return render_templates('login.html')
         conn = get_db()
         cursor = conn.cursor()
 
