@@ -1,128 +1,80 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for, session
 import sqlite3
-import re
-from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "secret123"
 
-# ---------------- DATABASE CONNECTION ---------------- #
 
-def get_connection():
+# DATABASE CONNECTION
+def get_db():
     conn = sqlite3.connect("database.db")
     conn.row_factory = sqlite3.Row
     return conn
 
-# ---------------- CREATE TABLE ---------------- #
 
-conn = get_connection()
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS attack_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    input TEXT,
-    timestamp TEXT
-)
-""")
-
-conn.commit()
-conn.close()
-
-# ---------------- SQL INJECTION PATTERNS ---------------- #
-
-sql_patterns = [
-
-    r"(\bOR\b|\bAND\b)\s+\d+=\d+",
-
-    r"(--|#|\/\*)",
-
-    r"\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|EXEC)\b",
-
-    r"\bUNION\b.*\bSELECT\b",
-
-    r";",
-
-    r"\bSLEEP\(|\bWAITFOR\b",
-
-    r"\bINFORMATION_SCHEMA\b",
-
-    r"0x[0-9a-fA-F]+",
-
-    r"['\"]{2,}"
-]
-
-# ---------------- DETECTION FUNCTION ---------------- #
-
-def detect_sql_injection(user_input):
-
-    for pattern in sql_patterns:
-
-        if re.search(pattern, user_input, re.IGNORECASE):
-            return True
-
-    return False
-
-# ---------------- HOME PAGE ---------------- #
-
+# HOME PAGE
 @app.route('/')
 def home():
-    return render_template('login.html')
+    return render_template("login.html")
 
-# ---------------- LOGIN PAGE ---------------- #
 
-@app.route('/login', methods=['GET','POST'])
-
+# LOGIN PAGE
+@app.route('/login', methods=['GET', 'POST'])
 def login():
 
-    username = request.form['username']
-    password = request.form['password']
+    if request.method == 'POST':
 
-    combined_input = username + " " + password
+        username = request.form['username']
+        password = request.form['password']
 
-    if detect_sql_injection(combined_input):
-
-        conn = get_connection()
+        conn = get_db()
         cursor = conn.cursor()
 
-        cursor.execute("""
-        INSERT INTO attack_logs (input, timestamp)
-        VALUES (?, ?)
-        """, (combined_input, datetime.now()))
+        query = "SELECT * FROM users WHERE username=? AND password=?"
+        cursor.execute(query, (username, password))
 
-        conn.commit()
+        user = cursor.fetchone()
+
         conn.close()
 
-        return "SQL Injection Attack Detected!"
+        if user:
+            session['user'] = username
+            return redirect(url_for('dashboard'))
 
-    return "Login Successful"
+        return "Invalid Username or Password"
 
-# ---------------- DASHBOARD ---------------- #
+    return render_template("login.html")
 
+
+# DASHBOARD PAGE
 @app.route('/dashboard')
-
 def dashboard():
 
-    conn = get_connection()
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT * FROM attack_logs
-    ORDER BY timestamp DESC
-    """)
-
+    cursor.execute("SELECT * FROM attack_logs ORDER BY id DESC")
     logs = cursor.fetchall()
-
-    count = len(logs)
 
     conn.close()
 
     return render_template(
-        'dashboard.html',
+        "dashboard.html",
         logs=logs,
-        count=count
+        username=session['user']
     )
 
-# ---------------- MAIN ---------------- #
 
+# LOGOUT
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+# RUN APP
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
