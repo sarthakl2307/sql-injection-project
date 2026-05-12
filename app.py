@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, redirect
 import sqlite3
 import re
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 
@@ -20,7 +22,6 @@ def get_connection():
 conn = get_connection()
 cursor = conn.cursor()
 
-# Users table
 cursor.execute("""
 
 CREATE TABLE IF NOT EXISTS users (
@@ -33,16 +34,14 @@ CREATE TABLE IF NOT EXISTS users (
 
 """)
 
-# Insert default admin user
 cursor.execute("""
 
 INSERT OR IGNORE INTO users (id, username, password)
 
-VALUES (1, 'admin', 'admin')
+VALUES (1, 'admin', 'admin123')
 
 """)
 
-# Attack logs table
 cursor.execute("""
 
 CREATE TABLE IF NOT EXISTS attack_logs (
@@ -63,23 +62,33 @@ conn.close()
 
 patterns = [
 
-    r"(\bOR\b|\bAND\b)\s+\d+=\d+",
+    r"(\bOR\b|\bAND\b).*=.*",
 
     r"(--|#|\/\*)",
 
-    r"\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|EXEC)\b",
+    r"\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|EXEC|CREATE|TRUNCATE)\b",
 
     r"\bUNION\b.*\bSELECT\b",
 
     r";",
 
-    r"\bSLEEP\(|\bWAITFOR\b",
+    r"\bSLEEP\s*\(",
+
+    r"\bWAITFOR\b",
 
     r"\bINFORMATION_SCHEMA\b",
 
     r"0x[0-9a-fA-F]+",
 
-    r"['\"]{2,}"
+    r"['\"]",
+
+    r"admin\s*--",
+
+    r"xp_cmdshell",
+
+    r"DROP\s+TABLE",
+
+    r"UNION\s+SELECT"
 
 ]
 
@@ -88,12 +97,60 @@ patterns = [
 
 def detect_sql_injection(user_input):
 
+    user_input = user_input.upper()
+
     for pattern in patterns:
 
         if re.search(pattern, user_input, re.IGNORECASE):
+
             return True
 
     return False
+
+
+# ---------------- EMAIL ALERT ---------------- #
+
+def send_email_alert(message):
+
+    sender_email = "sarthaklakhadive22@gmail.com"
+
+    sender_password = "dcmv pqof wqbl ajjk"
+
+    receiver_emails = [
+
+    "sarthaklakhadive22@gmail.com",
+    "lakhadivesarthak@gmail.com",
+    "kshirsagar.rohit.ranjit123@gmail.com"
+
+    ]
+
+    msg = MIMEText(message)
+
+    msg['Subject'] = "SQL Injection Alert"
+
+    msg['From'] = sender_email
+
+    msg['To'] = ", ".join(receiver_emails)
+
+    try:
+
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+
+        server.starttls()
+
+        server.login(sender_email, sender_password)
+
+        server.sendmail(
+            sender_email,
+            receiver_emails,
+            msg.as_string()
+        )
+
+        server.quit()
+
+    except Exception as e:
+
+        print(e)
 
 
 # ---------------- HOME PAGE ---------------- #
@@ -114,7 +171,7 @@ def login():
 
     combined_input = username + " " + password
 
-    # Detect SQL Injection
+    # SQL Injection Detection
     if detect_sql_injection(combined_input):
 
         conn = get_connection()
@@ -130,6 +187,20 @@ def login():
 
         conn.commit()
         conn.close()
+
+        # Send Email Alert
+        send_email_alert(
+
+            f"""
+SQL Injection Detected
+
+Username: {username}
+
+Password: {password}
+
+Time: {datetime.now()}
+"""
+        )
 
         return redirect('/dashboard')
 
