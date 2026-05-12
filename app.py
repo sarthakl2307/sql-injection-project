@@ -70,7 +70,7 @@ def home():
 
 # ---------------- LOGIN PAGE ---------------- #
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['GET','POST'])
 
 def login():
 
